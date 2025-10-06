@@ -340,6 +340,92 @@ function renderOverview(){
     }
   });
 }
+// ===== CÁMARAS: subtabs + hint =====
+function cameraCountersTotals(vrmKey){
+  const counters = state.perVrmCounters || {};
+  const totals = { total:0, offline:0, bvmsIssues:0 };
+  const entries = vrmKey ? [[vrmKey, counters[vrmKey] || {}]] : Object.entries(counters);
+  if (entries.length){
+    for (const [,data] of entries){
+      totals.total      += Number(data?.total || 0);
+      totals.offline    += Number(data?.offline || 0);
+      totals.bvmsIssues += Number(data?.bvmsIssues || 0);
+    }
+    return totals;
+  }
+
+  const cams = state.cams || [];
+  const filtered = vrmKey ? cams.filter(c=>c.primaryTarget===vrmKey) : cams;
+  totals.total = filtered.length;
+  totals.offline = filtered.filter(c=>String(c.recordingState||'').toLowerCase().includes('offline')).length;
+  return totals;
+}
+
+function updateCamsHint(vrmKey){
+  const hint = $('#camaras .hint'); if (!hint) return;
+  const hasData = (state.cams?.length || 0) > 0 || Object.keys(state.perVrmCounters||{}).length > 0;
+  if (!hasData){
+    hint.textContent = '';
+    hint.style.display = 'none';
+    return;
+  }
+  hint.style.display = '';
+  const key = vrmKey || null;
+  const totals = cameraCountersTotals(key);
+  const activeLabelRaw = $('#cams-subtabs .tab.active')?.textContent || '';
+  const baseLabel = activeLabelRaw.split(' (')[0].trim();
+  const scopeLabel = key ? (baseLabel || key) : 'general';
+  const prefix = key ? `Resumen ${scopeLabel}` : 'Resumen general';
+  hint.textContent = `${prefix}: ${fmt(totals.total)} cámaras · ${fmt(totals.offline)} offline · ${fmt(totals.bvmsIssues)} problemas BVMS`;
+}
+
+function buildCameraTabs(){
+  const host = $('#cams-subtabs'); if (!host) return;
+  const prevActive = host.querySelector('.tab.active')?.dataset.vrm || '';
+  const counters = state.perVrmCounters || {};
+  const vrmSet = new Set();
+  (state.cams||[]).forEach(cam=>{ if (cam?.primaryTarget) vrmSet.add(cam.primaryTarget); });
+  Object.keys(counters).forEach(k=>{ if (k) vrmSet.add(k); });
+  const keys = [...vrmSet].sort((a,b)=>a.localeCompare(b,'es',{ numeric:true, sensitivity:'base' }));
+
+  host.innerHTML = '';
+  if (!keys.length){
+    host.style.display = 'none';
+    updateCamsHint(null);
+    return;
+  }
+  host.style.display = 'flex';
+
+  const buttons = [];
+  const addButton = (label, vrmValue)=>{
+    const btn = document.createElement('button');
+    btn.className = 'tab';
+    btn.dataset.vrm = vrmValue || '';
+    btn.textContent = label;
+    btn.onclick = ()=>{
+      [...host.querySelectorAll('.tab')].forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      const key = btn.dataset.vrm || null;
+      updateCamsHint(key);
+      renderCams(key);
+    };
+    host.appendChild(btn);
+    buttons.push(btn);
+    return btn;
+  };
+
+  const totalsAll = cameraCountersTotals(null);
+  const allBtn = addButton(`Todas (${fmt(totalsAll.total)})`, '');
+  keys.forEach(key=>{
+    const totals = cameraCountersTotals(key);
+    addButton(`${key} (${fmt(totals.total)})`, key);
+  });
+
+  const activeKey = keys.includes(prevActive) ? prevActive : '';
+  let activeBtn = buttons.find(b=>b.dataset.vrm === (activeKey || '')) || allBtn;
+  activeBtn.classList.add('active');
+  updateCamsHint(activeBtn.dataset.vrm || null);
+}
 
 // ===== VRMs: subtabs + charts =====
 function buildVrmTabs(){
@@ -364,7 +450,8 @@ function buildVrmTabs(){
 }
 
 
- const host = $('#vrm-cards'); if (!host) return;
+ function renderTargets(){
+  const host = $('#vrm-cards'); if (!host) return;
   host.innerHTML = '';
   const per = state.targets?.byVrm || {};
   const keys = Object.keys(per).sort();
@@ -411,7 +498,7 @@ function buildVrmTabs(){
     `;
     host.appendChild(card);
   });
-
+ }
 
 // Comparativo VRM (activos / offline / sin grabar)
 let vrmCompareChart=null;
@@ -469,8 +556,9 @@ $('#cam-filters')?.addEventListener('click', e=>{
   btn.classList.add('active'); state.camFilter = btn.dataset.state; renderCams(currentVrmFilter());
 });
 function currentVrmFilter(){
-  const t = $('#cams-subtabs .tab.active')?.textContent;
-  return (t && t!=='Todas') ? t : null;
+  const tab = $('#cams-subtabs .tab.active');
+  const val = tab?.dataset.vrm || '';
+  return val ? val : null;
 }
 
 function rowMatches(r){
@@ -495,6 +583,9 @@ const modal = $('#modal'); $('#md-close')?.addEventListener('click', ()=>modal.c
 modal?.addEventListener('click', e=>{ if (e.target===modal) modal.classList.remove('open'); });
 
 function renderCams(filterVrmKey){
+  if (typeof filterVrmKey === 'undefined') filterVrmKey = currentVrmFilter();
+  if (!filterVrmKey) filterVrmKey = null;
+  updateCamsHint(filterVrmKey);
   const tbody = $('#tbl-cams tbody'); if (!tbody) return;
   let rows = (state.cams||[]).filter(r => (!filterVrmKey || r.primaryTarget===filterVrmKey) && rowMatches(r));
 
