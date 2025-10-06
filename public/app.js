@@ -6,6 +6,39 @@ const fmt = (n)=>Number(n||0).toLocaleString('es-AR');
 const sum = (arr)=>arr.reduce((a,b)=>a+Number(b||0),0);
 const pct = (a,b)=> b>0 ? (100*a/b) : 0;
 
+function createEmptyTargetsSummary(){
+  return { targetsSummary:{}, lunsSummary:{}, blocksSummary:{}, details:[] };
+}
+
+function cloneTargetsSummary(data={}){
+  const cloned = {
+    targetsSummary:{ ...(data.targetsSummary||{}) },
+    lunsSummary:{ ...(data.lunsSummary||{}) },
+    blocksSummary:{ ...(data.blocksSummary||{}) },
+    details: Array.isArray(data.details) ? data.details.slice() : []
+  };
+  if (data.meta) cloned.meta = { ...(data.meta||{}) };
+  return cloned;
+}
+
+function createTargetsState(){
+  return { totals:createEmptyTargetsSummary(), byVrm:{} };
+}
+
+function normalizeTargetsData(payload){
+  if (!payload) return createTargetsState();
+  const hasNewShape = payload.totals || payload.byVrm;
+  if (hasNewShape){
+    const totals = cloneTargetsSummary(payload.totals || {});
+    const byVrm = {};
+    for (const [key,val] of Object.entries(payload.byVrm || {})){
+      byVrm[key] = cloneTargetsSummary(val || {});
+    }
+    return { totals, byVrm };
+  }
+  return { totals: cloneTargetsSummary(payload), byVrm:{} };
+}
+
 // ===== estado =====
 const state = {
   endpoints: [],
@@ -18,7 +51,7 @@ const state = {
   camFilter: 'all',
   camsSortMulti: [{key:'cameraName',dir:'asc'}],
   autoTimer: null,
-  targets: null
+  targets: createTargetsState()
 };
 
 // ===== presets (de fábrica) =====
@@ -178,7 +211,7 @@ async function doScan(){
     derivedOverview:null,
     perVrmCounters:{},
     cameras:[],
-    targets:{ targetsSummary:{}, lunsSummary:{}, blocksSummary:{}, details:[] }
+    targets: createTargetsState()
   };
 
   for (const ep of state.endpoints){
@@ -211,10 +244,19 @@ function mergePayload(dst, j){
   }
   dst.cameras.push(...(j.cameras||[]));
   const addObj = (to,from)=>{ for (const [k,val] of Object.entries(from||{})){ to[k]=(Number(to[k]||0)+Number(val||0)); } };
-  addObj(dst.targets.targetsSummary, j.targets?.targetsSummary);
-  addObj(dst.targets.lunsSummary,    j.targets?.lunsSummary);
-  addObj(dst.targets.blocksSummary,  j.targets?.blocksSummary);
-  dst.targets.details.push(...(j.targets?.details||[]));
+  const incomingTargets = normalizeTargetsData(j.targets);
+  addObj(dst.targets.totals.targetsSummary, incomingTargets.totals.targetsSummary);
+  addObj(dst.targets.totals.lunsSummary,    incomingTargets.totals.lunsSummary);
+  addObj(dst.targets.totals.blocksSummary,  incomingTargets.totals.blocksSummary);
+  dst.targets.totals.details.push(...(incomingTargets.totals.details||[]));
+  for (const [key,data] of Object.entries(incomingTargets.byVrm||{})){
+    const bucket = dst.targets.byVrm[key] ||= createEmptyTargetsSummary();
+    addObj(bucket.targetsSummary, data.targetsSummary);
+    addObj(bucket.lunsSummary,    data.lunsSummary);
+    addObj(bucket.blocksSummary,  data.blocksSummary);
+    bucket.details.push(...(data.details||[]));
+    if (data.meta && !bucket.meta) bucket.meta = { ...(data.meta||{}) };
+  }
 }
 function applyPayload(j){
   state.overview        = j.overview || null;
@@ -222,7 +264,7 @@ function applyPayload(j){
   state.derivedOverview = j.derivedOverview || null;
   state.cams            = j.cameras || [];
   state.perVrmCounters  = j.perVrmCounters || {};
-  state.targets         = j.targets || null;
+  state.targets         = normalizeTargetsData(j.targets);
 
   renderOverview();
   buildCameraTabs(); renderCams();
@@ -302,45 +344,74 @@ function renderOverview(){
 // ===== VRMs: subtabs + charts =====
 function buildVrmTabs(){
   const sub = $('#vrms-subtabs'); if (!sub) return;
+  const prevActive = sub.querySelector('.tab.active')?.dataset.vrm || null;
   sub.innerHTML = '';
-  const keys = Object.keys(state.overview?.perVrm || {}).sort();
-  if (!keys.length) { sub.style.display='none'; return; }
+  const keys = Object.keys(state.targets?.byVrm || {}).sort();
+  if (keys.length <= 1) { sub.style.display='none'; return; }
   sub.style.display='flex';
   keys.forEach((k,i)=>{
+    const data = state.targets.byVrm[k] || {};
+    const label = data.meta?.label || k;
     const b = document.createElement('button');
-    b.className='tab'+(i===0?' active':''); b.textContent=k;
+    b.className='tab';
+    b.dataset.vrm = k;
+    b.textContent = label;
+    if ((prevActive && prevActive===k) || (!prevActive && i===0)) b.classList.add('active');
     b.onclick = ()=>{ [...sub.querySelectorAll('.tab')].forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderTargets(); };
     sub.appendChild(b);
   });
+  if (!sub.querySelector('.tab.active') && sub.firstChild){ sub.firstChild.classList.add('active'); }
 }
 
-function drawBar(id, labels, data){
-  const el = document.getElementById(id); if (!el) return;
-  if (el._chart) el._chart.destroy();
-  el._chart = new Chart(el, {
-    type:'bar',
-    data:{ labels, datasets:[{ data, label:'Valor', backgroundColor:'#2f81f7' }] },
-    options:{
-      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:(ctx)=>`${ctx.label}: ${fmt(ctx.parsed.y??ctx.parsed)}` } } },
-      scales:{ x:{ ticks:{color:'#c9d1d9'} }, y:{ ticks:{color:'#c9d1d9'} } }
-    }
+
+ const host = $('#vrm-cards'); if (!host) return;
+  host.innerHTML = '';
+  const per = state.targets?.byVrm || {};
+  const keys = Object.keys(per).sort();
+  if (!keys.length){
+    host.innerHTML = '<div class="vrm-empty">Sin información de almacenamiento.</div>';
+    return;
+  }
+  const activeKey = $('#vrms-subtabs .tab.active')?.dataset.vrm || null;
+  const offlineLabels = new Set(['Offline Targets','Offline LUNs']);
+  keys.forEach(key=>{
+    const data = per[key] || {};
+    const card = document.createElement('article');
+    card.className = 'vrm-card';
+    if (activeKey && activeKey === key) card.classList.add('active');
+    const title = data.meta?.vrm || data.meta?.label || key;
+    const subtitleParts = [];
+    if (data.meta?.bvms) subtitleParts.push(data.meta.bvms);
+    if (data.meta?.ip) subtitleParts.push(data.meta.ip);
+    const subtitle = subtitleParts.join(' • ');
+    const metrics = [
+      ['Total number of targets', data.targetsSummary?.['Total number of targets']],
+      ['Usable capacity Targets (GiB)', data.targetsSummary?.['Usable capacity targets [GiB]']],
+      ['Offline Targets', data.targetsSummary?.['Offline Targets']],
+      ['Total number of LUNs', data.lunsSummary?.['Total number of LUNs']],
+      ['Offline LUNs', data.lunsSummary?.['Offline LUNs']],
+      ['Total number of Blocks', data.blocksSummary?.['Total number of blocks']],
+      ['Total GiB', data.blocksSummary?.['Total GiB']],
+      ['Empty blocks (GiB)', data.blocksSummary?.['Empty blocks [GiB]']],
+      ['Available blocks (GiB)', data.blocksSummary?.['Available blocks [GiB]']],
+      ['Protected blocks (GiB)', data.blocksSummary?.['Protected blocks [GiB]']]
+    ];
+    const metricsHtml = metrics.map(([label,value])=>{
+      const num = Number(value ?? 0);
+      const formatted = Number.isFinite(num) ? fmt(num) : '—';
+      const warnClass = offlineLabels.has(label) && num > 0 ? ' warn' : '';
+      return `<div class="vrm-metric${warnClass}"><span>${esc(label)}</span><strong>${formatted}</strong></div>`;
+    }).join('');
+    card.innerHTML = `
+      <header>
+        <h3>${esc(title)}</h3>
+        ${subtitle ? `<span class="vrm-subtitle">${esc(subtitle)}</span>` : ''}
+      </header>
+      <div class="vrm-metrics">${metricsHtml}</div>
+    `;
+    host.appendChild(card);
   });
-}
-function renderTargets(){
-  const s = state.targets || {};
-  drawBar('chart-targets',
-    ['Total number of targets','Usable capacity targets [GiB]','Offline Targets'],
-    [s.targetsSummary?.['Total number of targets']||0, s.targetsSummary?.['Usable capacity targets [GiB]']||0, s.targetsSummary?.['Offline Targets']||0]
-  );
-  drawBar('chart-luns',
-    ['Total number of LUNs','Read-only LUNs','Offline LUNs'],
-    [s.lunsSummary?.['Total number of LUNs']||0, s.lunsSummary?.['Read-only LUNs']||0, s.lunsSummary?.['Offline LUNs']||0]
-  );
-  drawBar('chart-blocks',
-    ['Total number of blocks','Total GiB','Empty blocks [GiB]','Available blocks [GiB]','Protected blocks [GiB]'],
-    [s.blocksSummary?.['Total number of blocks']||0, s.blocksSummary?.['Total GiB']||0, s.blocksSummary?.['Empty blocks [GiB]']||0, s.blocksSummary?.['Available blocks [GiB]']||0, s.blocksSummary?.['Protected blocks [GiB]']||0]
-  );
-}
+
 
 // Comparativo VRM (activos / offline / sin grabar)
 let vrmCompareChart=null;
