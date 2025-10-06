@@ -236,31 +236,27 @@ let overviewChart=null;
 function renderOverview(){
   const t = state.overviewFinal?.totals || {};
 
+  const totalChannels   = Number(t.totalChannels   || 0);
+  const activeRecordings= Number(t.activeRecordings|| 0);
+  const idle            = Number(t.idle            || 0);
+  const offlineChannels = Number(t.offlineChannels || 0);
+  const signalLoss      = Number(t.signalLoss      || 0);
+  
   // ---- Cards (IDs reales del HTML) ----
-  // Total de cámaras -> index.mhtml
-  $('#ov-total-channels').textContent = fmt(t.totalChannels);
-
-  // Cámaras operativas -> Recording (server ya lo trae de ShowCameras)
-  $('#ov-active').textContent = fmt(t.activeRecordings);
-
-  // Problemas BVMS -> disabled + pending(no blocks/connecting) + error(storage)
-  const bvmsIssues = sum(Object.values(state.perVrmCounters).map(x=>x.bvmsIssues||0));
+  $('#ov-total-channels').textContent = fmt(totalChannels);
+  $('#ov-offline').textContent       = fmt(idle);
+  $('#ov-active').textContent        = fmt(activeRecordings);
+  const bvmsIssues = Math.max(idle - offlineChannels - signalLoss, 0);
   $('#ov-bvms').textContent = fmt(bvmsIssues);
-
-  // Problemas (no BVMS) -> offline
-  const offlineIssues = sum(Object.values(state.perVrmCounters).map(x=>x.offline||0));
-  // Mostrar en la card "Otros issues" según tu definición:
-  $('#ov-problems').textContent = fmt(offlineIssues);
+  const nonBvmsIssues = offlineChannels + signalLoss;
+  $('#ov-problems').textContent = fmt(nonBvmsIssues);
   const lbl = $('#ov-problems-label');
-  if (lbl) lbl.textContent = 'Cámaras con problemas (no BVMS)';
-  // Y también reflejarlo en la card "Cámaras offline" para que no quede en 0:
-  $('#ov-offline').textContent = fmt(offlineIssues);
+  if (lbl) lbl.textContent = 'Problemas no BVMS';
 
   // ---- Donut (3 segmentos) ----
-  const total      = Number(t.totalChannels||0);
-  const operativas = Number(t.activeRecordings||0);
-  const data       = [operativas, bvmsIssues, offlineIssues];
-  const labels     = ['Cámaras operativas','Problemas BVMS','Problemas (no BVMS)'];
+  const total      = totalChannels;
+  const data       = [activeRecordings, bvmsIssues, nonBvmsIssues];
+  const labels     = ['Grabaciones activas','Problemas BVMS','Problemas no BVMS'];
   const colors     = ['#2ea043', '#f0883e', '#f85149'];
 
   const ctx = $('#chart-overview');
