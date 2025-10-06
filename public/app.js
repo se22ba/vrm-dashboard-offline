@@ -40,6 +40,16 @@ function normalizeTargetsData(payload){
 }
 
 // ===== estado =====
+const CAM_FILTER_OPTIONS = [
+  { value:'all',      label:'Todas' },
+  { value:'Offline',  label:'Offline' },
+  { value:'Recording',label:'Recording' },
+  { value:'Disabled', label:'Disabled' },
+  { value:'Error',    label:'Error' },
+  { value:'Pending',  label:'Pending' }
+];
+const ALLOWED_CAM_FILTERS = CAM_FILTER_OPTIONS.map(opt=>opt.value);
+
 const state = {
   endpoints: [],
   cams: [],
@@ -266,6 +276,7 @@ function applyPayload(j){
   state.perVrmCounters  = j.perVrmCounters || {};
   state.targets         = normalizeTargetsData(j.targets);
 
+  updateCamFilterButtons();
   renderOverview();
   buildCameraTabs(); renderCams();
   buildVrmTabs();    renderTargets(); renderVrmCompare();
@@ -550,12 +561,44 @@ function renderVrmCompare(){
 
 // ===== buscador + filtros =====
 $('#cam-search')?.addEventListener('input', e=>{ state.camSearch = e.target.value.toLowerCase(); renderCams(currentVrmFilter()); });
-function updateCamFilterButtons(){
+function sanitizeCamFiltersState(){
   if (!(state.camFilters instanceof Set)) {
-    state.camFilters = new Set(['all']);
+    state.camFilters = new Set();
   }
+  const next = new Set();
+  for (const val of state.camFilters){
+    if (ALLOWED_CAM_FILTERS.includes(val)) next.add(val);
+  }
+  if (!next.size || next.has('all')){
+    state.camFilters = new Set(['all']);
+  } else {
+    state.camFilters = next;
+  }
+}
+
+function ensureCamFilterButtons(){
+  const host = $('#cam-filters'); if (!host) return [];
+  const existing = new Map();
+  for (const btn of $$('#cam-filters .filter')){
+    existing.set(btn.dataset.state, btn);
+  }
+  host.innerHTML = '';
+  const buttons = [];
+  CAM_FILTER_OPTIONS.forEach(opt=>{
+    const btn = existing.get(opt.value) || document.createElement('button');
+    btn.className = 'chip filter';
+    btn.dataset.state = opt.value;
+    btn.textContent = opt.label;
+    host.appendChild(btn);
+    buttons.push(btn);
+  });
+  return buttons;
+}
+
+function updateCamFilterButtons(){
+  sanitizeCamFiltersState();
   const filters = state.camFilters;
-  const buttons = $$('#cam-filters .filter');
+  const buttons = ensureCamFilterButtons();
   buttons.forEach(btn => {
     const val = btn.dataset.state;
     if (!val) return;
@@ -566,7 +609,7 @@ function updateCamFilterButtons(){
 $('#cam-filters')?.addEventListener('click', e=>{
   const btn = e.target.closest('.filter'); if (!btn) return;
   const selected = btn.dataset.state;
-  if (!selected) return;
+  if (!selected || !ALLOWED_CAM_FILTERS.includes(selected)) return;
 
   if (selected === 'all') {
     state.camFilters = new Set(['all']);
@@ -602,14 +645,17 @@ function rowMatches(r){
     const blob = `${r.cameraName} ${r.address} ${r.recordingState} ${r.fwVersion}`.toLowerCase();
     if (!blob.includes(s)) return false;
   }
-  const filters = state.camFilters;
+   const filters = state.camFilters;
   if (filters && !filters.has('all')){
+    const activeFilters = Array.from(filters).filter(f=>ALLOWED_CAM_FILTERS.includes(f));
+    if (!activeFilters.length) return true;
     const st = (r.recordingState||'').toLowerCase();
-    const matches = Array.from(filters).some(f=>{
+    const matches = activeFilters.some(f=>{
       if (f==='Recording') return st.startsWith('recording');
       if (f==='Offline')   return st.includes('offline');
       if (f==='Disabled')  return st.includes('disabled');
       if (f==='Error')     return st.includes('error');
+      if (f==='Pending')     return st.includes('pending');
       return true;
     });
     if (!matches) return false;

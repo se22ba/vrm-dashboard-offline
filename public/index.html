@@ -63,7 +63,7 @@
 
       <button class="btn primary" id="btn-scan">Escanear</button>
 
-      <label class="btn file">
+      <!--<label class="btn file">
         <input id="f-index" type="file" accept=".mhtml,.mht,.html,.htm" hidden />
         Adjuntar index.mhtml
       </label>
@@ -81,13 +81,13 @@
       </label>
       <button class="btn success" id="btn-parse">
         Parsear adjuntos <span id="attach-badge" class="badge">0/4</span>
-      </button>
+      </button>-->
     </div>
 
-    <div class="selected-endpoints">
+   <!-- <div class="selected-endpoints">
       <div class="chips-title">Endpoints seleccionados</div>
       <div id="chips-list" class="chips"></div>
-    </div>
+    </div>-->
   </header>
 
   <!-- Tabs -->
@@ -106,7 +106,7 @@
           <div class="value" id="ov-total-channels">0</div>
         </div>
         <div class="kpi tone-purple">
-          <div class="label">Cámaras offline</div>
+          <div class="label">Cámaras con problemas</div>
           <div class="value" id="ov-offline">0</div>
         </div>
         <div class="kpi tone-green">
@@ -114,11 +114,11 @@
           <div class="value" id="ov-active">0</div>
         </div>
         <div class="kpi tone-orange">
-          <div class="label">Problemas BVMS</div>
+          <div class="label">Otros problemas</div>
           <div class="value" id="ov-bvms">0</div>
         </div>
         <div class="kpi tone-red">
-          <div class="label" id="ov-problems-label">Problemas no BVMS</div>
+          <div class="label" id="ov-problems-label">Problemas RED/HW</div>
           <div class="value" id="ov-problems">0</div>
         </div>
       </div>
@@ -126,7 +126,7 @@
       <!-- Donut -->
       <div class="charts one center">
         <div class="chart-card slim donut">
-          <h4>Distribución general</h4>
+          <h4>Gráfico</h4>
           <canvas id="chart-overview"></canvas>
         </div>
       </div>
@@ -177,10 +177,7 @@
         <div class="subtabs" id="vrms-subtabs" style="display:none;"></div>
       </div>
       <div id="vrm-cards" class="vrm-cards"></div>
-      <div class="charts one">
-        <div class="chart-card"><h4>Comparativo por VRM</h4><canvas id="chart-vrm-compare" height="160"></canvas></div>
-        
-      </div>
+      
     </section>
   </main>
 
