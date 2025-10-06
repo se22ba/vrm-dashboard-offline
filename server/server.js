@@ -44,6 +44,38 @@ function safeName(s) {
 function emptyTotals() {
   return { totalChannels: 0, offlineChannels: 0, activeRecordings: 0, idle: 0, signalLoss: 0 };
 }
+function emptyTargetsSummary() {
+  return { targetsSummary: {}, lunsSummary: {}, blocksSummary: {}, details: [] };
+}
+
+function cloneTargetsSummary(src = {}) {
+  return {
+    targetsSummary: { ...(src.targetsSummary || {}) },
+    lunsSummary: { ...(src.lunsSummary || {}) },
+    blocksSummary: { ...(src.blocksSummary || {}) },
+    details: Array.isArray(src.details) ? src.details.slice() : []
+  };
+}
+
+function buildVrmLabel({ bvms, vrm, ip }) {
+  const parts = [];
+  if (bvms) parts.push(bvms);
+  if (vrm) parts.push(vrm);
+  if (parts.length) return parts.join(' · ');
+  if (ip) return ip;
+  return 'VRM';
+}
+
+function buildTargetsPayload(raw, meta = {}, { includeCard = true } = {}) {
+  const base = raw ? cloneTargetsSummary(raw) : emptyTargetsSummary();
+  const label = meta.label;
+  const byVrm = {};
+  if (label && includeCard) {
+    byVrm[label] = { ...cloneTargetsSummary(raw || {}), meta };
+  }
+  return { totals: base, byVrm };
+}
+
 
 // Normaliza cualquier cosa "parecida a lista" a un array
 function asArray(maybeList) {
@@ -114,9 +146,18 @@ app.post('/api/parse-uploads', (req, res) => {
         camsStats = raw && typeof raw === 'object' ? raw : null;
       }
 
-      const targets = tgsPath
+      const hasTargetsFile = Boolean(tgsPath);
+      const targetsRaw = hasTargetsFile
         ? await parseTargets(tgsPath)
-        : { targetsSummary:{}, lunsSummary:{}, blocksSummary:{}, details:[] };
+          : emptyTargetsSummary();
+
+      const overviewVrms = Object.keys(overview?.perVrm || {});
+      const vrmFromOverview = overviewVrms.length === 1 ? overviewVrms[0] : (overviewVrms[0] || null);
+      const uploadLabel = buildVrmLabel({ bvms: null, vrm: vrmFromOverview, ip: null });
+      const targets = buildTargetsPayload(targetsRaw, {
+        label: uploadLabel,
+        vrm: vrmFromOverview || null
+      }, { includeCard: hasTargetsFile });
 
       // --- Totales base desde index.mhtml (Total de cámaras de index) ---
       let totals = overview?.totals || emptyTotals();
@@ -176,9 +217,18 @@ app.post('/api/scrape', async (req, res) => {
       camsStats = raw && typeof raw === 'object' ? raw : null;
     }
 
-    const targets = fs.existsSync(tgsPath)
+    const hasTargetsFile = fs.existsSync(tgsPath);
+    const targetsRaw = hasTargetsFile
       ? await parseTargets(tgsPath)
-      : { targetsSummary:{}, lunsSummary:{}, blocksSummary:{}, details:[] };
+      : emptyTargetsSummary();
+
+    const label = buildVrmLabel({ bvms, vrm, ip });
+    const targets = buildTargetsPayload(targetsRaw, {
+      label,
+      bvms: bvms || null,
+      vrm: vrm || null,
+      ip: ip || null
+    }, { includeCard: hasTargetsFile });
 
     // --- Totales base desde index.mhtml (Total de cámaras de index) ---
     let totals = overview?.totals || emptyTotals();
