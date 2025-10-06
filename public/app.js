@@ -48,7 +48,7 @@ const state = {
   derivedOverview: null,
   perVrmCounters: {},
   camSearch: '',
-  camFilter: 'all',
+  camFilters: new Set(['all']),
   camsSortMulti: [{key:'cameraName',dir:'asc'}],
   autoTimer: null,
   targets: createTargetsState()
@@ -550,11 +550,46 @@ function renderVrmCompare(){
 
 // ===== buscador + filtros =====
 $('#cam-search')?.addEventListener('input', e=>{ state.camSearch = e.target.value.toLowerCase(); renderCams(currentVrmFilter()); });
+function updateCamFilterButtons(){
+  if (!(state.camFilters instanceof Set)) {
+    state.camFilters = new Set(['all']);
+  }
+  const filters = state.camFilters;
+  const buttons = $$('#cam-filters .filter');
+  buttons.forEach(btn => {
+    const val = btn.dataset.state;
+    if (!val) return;
+    const isActive = filters.has('all') ? val === 'all' : filters.has(val);
+    btn.classList.toggle('active', isActive);
+  });
+}
 $('#cam-filters')?.addEventListener('click', e=>{
   const btn = e.target.closest('.filter'); if (!btn) return;
-  $$('#cam-filters .filter').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active'); state.camFilter = btn.dataset.state; renderCams(currentVrmFilter());
+  const selected = btn.dataset.state;
+  if (!selected) return;
+
+  if (selected === 'all') {
+    state.camFilters = new Set(['all']);
+  } else {
+    if (!state.camFilters || state.camFilters.has('all')) {
+      state.camFilters = new Set();
+    }
+    if (state.camFilters.has(selected)) {
+      state.camFilters.delete(selected);
+    } else {
+      state.camFilters.add(selected);
+    }
+    if (!state.camFilters.size) {
+      state.camFilters.add('all');
+    } else {
+      state.camFilters.delete('all');
+    }
+  }
+
+  updateCamFilterButtons();
+  renderCams(currentVrmFilter());
 });
+updateCamFilterButtons();
 function currentVrmFilter(){
   const tab = $('#cams-subtabs .tab.active');
   const val = tab?.dataset.vrm || '';
@@ -567,13 +602,17 @@ function rowMatches(r){
     const blob = `${r.cameraName} ${r.address} ${r.recordingState} ${r.fwVersion}`.toLowerCase();
     if (!blob.includes(s)) return false;
   }
-  const f = state.camFilter;
-  if (f && f!=='all'){
+  const filters = state.camFilters;
+  if (filters && !filters.has('all')){
     const st = (r.recordingState||'').toLowerCase();
-    if (f==='Recording' && !st.startsWith('recording')) return false;
-    if (f==='Pending'   && !st.startsWith('pending'))   return false;
-    if (f==='Disabled'  && !st.startsWith('recording disabled')) return false;
-    if (f==='Offline'   && !st.includes('offline')) return false;
+    const matches = Array.from(filters).some(f=>{
+      if (f==='Recording') return st.startsWith('recording');
+      if (f==='Offline')   return st.includes('offline');
+      if (f==='Disabled')  return st.includes('disabled');
+      if (f==='Error')     return st.includes('error');
+      return true;
+    });
+    if (!matches) return false;
   }
   return true;
 }
@@ -616,23 +655,33 @@ function renderCams(filterVrmKey){
   }
 
   // sort headers
-  $$('#tbl-cams thead th.sortable').forEach(th=>{
+  const sortableHeaders = $$('#tbl-cams thead th.sortable');
+  const applySortIndicators = ()=>{
+    sortableHeaders.forEach(th=>th.classList.remove('th-asc','th-desc'));
+    state.camsSortMulti.forEach(sort=>{
+      const th = sortableHeaders.find(h=>h.dataset.key===sort.key);
+      if (th) th.classList.add(sort.dir==='desc'?'th-desc':'th-asc');
+    });
+  };
+
+  sortableHeaders.forEach(th=>{
     th.onclick = (ev)=>{
       const key = th.dataset.key;
       const withShift = ev.shiftKey;
       if (!withShift){
-        state.camsSortMulti = [{key,dir:'asc'}];
+        const current = state.camsSortMulti[0];
+        const dir = (current && current.key===key && current.dir==='asc') ? 'desc' : 'asc';
+        state.camsSortMulti = [{key,dir}];
       } else {
         const i = state.camsSortMulti.findIndex(s=>s.key===key);
         if (i>=0){ state.camsSortMulti[i].dir = state.camsSortMulti[i].dir==='asc'?'desc':'asc'; }
         else state.camsSortMulti.push({key,dir:'asc'});
       }
-      $$('#tbl-cams thead th').forEach(x=>x.classList.remove('th-asc','th-desc'));
-      const thNow = Array.from($$('#tbl-cams thead th')).find(x=>x.dataset.key===key);
-      if (thNow) thNow.classList.add('th-asc');
+      applySortIndicators();
       renderCams(filterVrmKey);
     };
   });
+  applySortIndicators();
 }
 
 // histórico local corto
